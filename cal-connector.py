@@ -11,7 +11,7 @@ email_domain = raw_input('Email Domain: ')
 zimbra_url = 'http://webmail.{}/home/{}'.format(email_domain, zimbra_username)
 zimbra_basic_auth = '&auth=ba'
 
-zimbra_cal = zimbra_url + 'calendar?fmt=json&start=-1mon&end=+1year'
+zimbra_cal = zimbra_url + 'calendar?fmt=json'
 
 def get_cal():
     r = requests.get(zimbra_cal + zimbra_basic_auth, auth=(zimbra_username, zimbra_password))
