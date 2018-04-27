@@ -51,6 +51,8 @@ def get_cal():
     """
     Parses calendar data from user's Zimbra calendar and create a list of dictionaries using Zimbra's calItemID, name of calItem, start, and end dates
     """
+    print ' '
+    print 'Gathering Zimbra Calendar...'
     r = requests.get(zimbra_cal + zimbra_basic_auth,
                      auth=(zimbra_username, zimbra_password))
     json_output = json.loads(r.text)
@@ -84,6 +86,9 @@ def get_cal():
                     'allday': allday,
                     'zimbra_id': int(cal_activity['comp'][0]['calItemId']),
                 })
+    print ' '
+    print 'Zimbra Calendar Parsed - Sending to Redtail'
+    print ' '
     return send_to_redtail
 
 
@@ -137,4 +142,7 @@ def sync():
 # Timer that runs sync() every hour
 while True:
     sync()
+    print ' '
+    print 'Sync Complete'
+    print ' '
     time.sleep(3600)
