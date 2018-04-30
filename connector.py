@@ -26,7 +26,7 @@ zimbra_username = raw_input('Zimbra Webmail Email Address: ')
 zimbra_password = getpass.getpass('Zimbra Webmail Password: ')
 tz = inquirer.prompt(timezones_question)['tz']
 timezone_offset = datetime.datetime.now(pytz.timezone(tz)).strftime('%z')
-timezone_string = tz
+user_timezone = pytz.timezone(tz)
 email_domain = zimbra_username.split('@')[1]
 
 zimbra_url = 'http://webmail.{}/home/{}'.format(
@@ -36,7 +36,7 @@ zimbra_cal = zimbra_url + '/calendar?fmt=json'
 
 db = SqliteDatabase('calendars.db')
 
-directory = 'ics_files_{}'.format(redtail.get_user(rt_un, rt_pw))
+directory = 'ics/ics_files_{}'.format(redtail.get_user(rt_un, rt_pw))
 if not os.path.exists(directory):
     os.makedirs(directory)
 
@@ -134,8 +134,8 @@ def get_redtail_cal():
     for act in rt_cal['Activities']:
         sending_to_zimbra.append({
             'summary': act['Subject'],
-            'dtstart': redtail.parse_date(act['StartDate'], act['AllDayEvent'], timezone_string),
-            'dtend': redtail.parse_date(act['EndDate'], act['AllDayEvent'], timezone_string),
+            'dtstart': redtail.parse_date(act['StartDate'], act['AllDayEvent'], user_timezone),
+            'dtend': redtail.parse_date(act['EndDate'], act['AllDayEvent'], user_timezone),
             'desc': act['Note'],
             'uid': act['RecID'],
             'allday': act['AllDayEvent'],
@@ -204,7 +204,6 @@ def sync():
     for event in redtail_cal:
         if To_Redtail.select().where(To_Redtail.redtail_act_id == event['uid']):
             if event['last_update'] > last_sync:
-                print 'Zim 1st last_update = {}, last_sync = {}'.format(event['last_update'], last_sync)
                 zimbra_uid = To_Redtail.select().where(
                     To_Redtail.redtail_act_id == event['uid']).get().zimbra_item_id
                 rt_id = event['uid']
@@ -213,13 +212,11 @@ def sync():
                 To_Zimbra.create(user=rt_user_id, zimbra_item_id=event['uid'], redtail_act_id=rt_id)
         elif To_Zimbra.select().where(To_Zimbra.zimbra_item_id == event['uid']):
             if event['last_update'] > last_sync:
-                print 'Zim 2nd last_update = {}, last_sync = {}'.format(event['last_update'], last_sync)
                 zimbra_uid = To_Zimbra.select().where(
                     To_Zimbra.zimbra_item_id == event['uid']).get().zimbra_item_id
                 event['uid'] = zimbra_uid
                 send_to_zimbra(event)
         else:
-            print '3rd'
             send_to_zimbra(event)
             To_Zimbra.create(user=rt_user_id, zimbra_item_id=event['uid'], redtail_act_id=event['uid'])
 
@@ -227,7 +224,6 @@ def sync():
     for cal_item in zimbra_cal:
         if To_Redtail.select().where(To_Redtail.zimbra_item_id == cal_item['uid']):
             if cal_item['last_update'] > last_sync:
-                print 'rt 1st last_update = {}, last_sync = {}'.format(cal_item['last_update'], last_sync)
                 db_record = To_Redtail.select().where(To_Redtail.zimbra_item_id == cal_item['uid'])
                 redtail_recid = db_record.get().redtail_act_id
                 # Update Redtail activity
@@ -235,14 +231,12 @@ def sync():
                     rt_un, rt_pw, cal_item, redtail_recid, rt_user_id, timezone_offset)
         elif To_Zimbra.select().where(To_Zimbra.redtail_act_id == cal_item['uid']):
             if cal_item['last_update'] > last_sync:
-                print 'rt 2nd last_update = {}, last_sync = {}'.format(cal_item['last_update'], last_sync)
                 redtail_recid = To_Zimbra.select().where(
                     To_Zimbra.redtail_act_id == cal_item['uid']).get().redtail_act_id
                 # Update Redtail activity
                 redtail.put_cal_item(
                     rt_un, rt_pw, cal_item, redtail_recid, rt_user_id, timezone_offset)
         else:
-            print '3rd'
             # if a zimbra id is not in database then create a new Redtail activity
             To_Redtail.create(user=rt_user_id, zimbra_item_id=cal_item['uid'], redtail_act_id=redtail.put_cal_item(
                 rt_un, rt_pw, cal_item, 0, rt_user_id, timezone_offset))
