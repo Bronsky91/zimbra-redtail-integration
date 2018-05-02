@@ -22,6 +22,7 @@ timezones_question = [
                   ),
 ]
 
+# Input setup
 rt_un = raw_input('Redtail Username: ')
 rt_pw = getpass.getpass('Redtail Password: ')
 zimbra_username = raw_input('Zimbra Webmail Email Address: ')
@@ -30,19 +31,19 @@ tz = inquirer.prompt(timezones_question)['tz']
 timezone_offset = datetime.datetime.now(pytz.timezone(tz)).strftime('%z')
 user_timezone = pytz.timezone(tz)
 email_domain = zimbra_username.split('@')[1]
-
+# Zimbra urls for API calls
 zimbra_url = 'http://webmail.{}/home/{}'.format(
     email_domain, zimbra_username)
 zimbra_basic_auth = '&auth=ba'
 zimbra_cal = zimbra_url + '/calendar?fmt=json'
-
+# Sqlite database setup
 db = SqliteDatabase('calendars.db')
-
+# Directory for ICS files when saved
 directory = 'ics/ics_files_{}'.format(redtail.get_user(rt_un, rt_pw))
 if not os.path.exists(directory):
     os.makedirs(directory)
 
-
+# DB Table for Calendar Items that are sent to Redtail
 class To_Redtail(Model):
     user = IntegerField(default=0)
     redtail_act_id = CharField()
@@ -51,7 +52,7 @@ class To_Redtail(Model):
     class Meta:
         database = db
 
-
+# DB Table for Calendar Items that are sent to Zimbra
 class To_Zimbra(Model):
     user = IntegerField(default=0)
     redtail_act_id = CharField()
@@ -68,6 +69,9 @@ if __name__ == '__main__':
 
 
 def get_timestamp():
+    """
+    Returns a current UTC Timestamp in Milliseconds
+    """
     ts = datetime.datetime.utcnow()
     return int(calendar.timegm(ts.utctimetuple()) * 1000)
 
@@ -87,10 +91,13 @@ def day_convert_to_timestamp(date_string):
 
 def get_zimbra_cal():
     """
-    Parses calendar data from user's Zimbra calendar and create a list of dictionaries using Zimbra's calItemID, name of calItem, start, and end dates
+    Parses calendar data from user's Zimbra calendar and creates a list of dictionaries using Zimbra's 
+    calItemID, name of calItem, start, and end dates
     """
     print ' '
     print 'Gathering Zimbra Calendar...'
+    # Returns the user's entire Zimbra calendar 
+    # --Zimbra does not return any cal items in a specific date range when requesting JSON Format-- #
     r = requests.get(zimbra_cal + zimbra_basic_auth,
                      auth=(zimbra_username, zimbra_password))
     json_output = json.loads(r.text)
@@ -98,7 +105,7 @@ def get_zimbra_cal():
 
     send_to_redtail = []
 
-    # Parsing zimbra cal data for 1 month ago and 6 months out.
+    # Parsing zimbra cal data for 1 month ago and 12 months out.
     for cal_item in cal:
         for cal_activity in cal_item['inv']:
             allday = False
@@ -128,7 +135,7 @@ def get_zimbra_cal():
 
 
 def get_redtail_cal():
-    # Redtail Calendar activites
+    # Redtail Calendar activites 
     rt_cal = redtail.get_cal(rt_un, rt_pw)
     sending_to_zimbra = []
     for act in rt_cal['Activities']:
@@ -157,7 +164,7 @@ def send_to_zimbra(act):
     c.add_component(e)
     with open('{}/to_zimbra_{}.ics'.format(directory, act['uid']), 'w+') as f:
         f.write(c.to_ical())
-
+    # Sends ICS file to Zimbra to import the appointment
     with open('{}/to_zimbra_{}.ics'.format(directory, act['uid']), 'rb') as f:
         r = requests.post(zimbra_url + '/calendar?fmt=ics',
                           auth=(zimbra_username, zimbra_password),
@@ -237,7 +244,7 @@ def sync():
             To_Redtail.create(user=rt_user_id, zimbra_item_id=cal_item['uid'], redtail_act_id=redtail.put_cal_item(
                 rt_un, rt_pw, cal_item, 0, rt_user_id, timezone_offset))
 
-        # Loop to complete and remove deleted zimbra calendar items
+    # Loop to complete and remove deleted zimbra calendar items in Redtail
     for record in db_list['to_redtail_data']:
         if check_if_cal_item_is_deleted(record['zimbra_item_id'], zimbra_cal):
             redtail.mark_activity_complete(
@@ -246,7 +253,7 @@ def sync():
                                       record['redtail_act_id']).get().delete()
 
 
-# Timer that runs sync() every 30 min
+# Timer that runs sync() every 30 min and sets the last_sync variable
 while True:
     sync()
     last_sync = get_timestamp()
