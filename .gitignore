@@ -1,3 +1,5 @@
 calendars.db
 redtail\.py
 *.pyc
+
+ics/

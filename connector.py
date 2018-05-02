@@ -1,6 +1,7 @@
 import requests
 import json
-import datetime, pytz
+import datetime
+import pytz
 import calendar
 import time
 import getpass
@@ -11,13 +12,14 @@ import inquirer
 from peewee import *
 from icalendar import Event, Calendar
 
-import redtail # Custom Redtail file created to hold all Redtail API calls and API Key
+import redtail  # Custom Redtail file created to hold all Redtail API calls and API Key
 
 timezones_question = [
     inquirer.List('tz',
-                message='Choose your Timezone',
-                choices=['US/Pacific', 'US/Arizona', 'US/Mountain', 'US/Central', 'US/Eastern'],
-    ),
+                  message='Choose your Timezone',
+                  choices=['US/Pacific', 'US/Arizona',
+                           'US/Mountain', 'US/Central', 'US/Eastern'],
+                  ),
 ]
 
 rt_un = raw_input('Redtail Username: ')
@@ -45,7 +47,6 @@ class To_Redtail(Model):
     user = IntegerField(default=0)
     redtail_act_id = CharField()
     zimbra_item_id = CharField()
-    changed = BooleanField(default=0)
 
     class Meta:
         database = db
@@ -55,7 +56,6 @@ class To_Zimbra(Model):
     user = IntegerField(default=0)
     redtail_act_id = CharField()
     zimbra_item_id = CharField()
-    changed = BooleanField(default=0)
 
     class Meta:
         database = db
@@ -72,7 +72,7 @@ def get_timestamp():
     return int(calendar.timegm(ts.utctimetuple()) * 1000)
 
 
-last_sync = get_timestamp()
+last_sync = 0
 
 
 def day_convert_to_timestamp(date_string):
@@ -137,7 +137,7 @@ def get_redtail_cal():
             'dtstart': redtail.parse_date(act['StartDate'], act['AllDayEvent'], user_timezone),
             'dtend': redtail.parse_date(act['EndDate'], act['AllDayEvent'], user_timezone),
             'desc': act['Note'],
-            'uid': act['RecID'],
+            'uid': '{}_{}'.format(act['RecID'],re.search(r'\d+', act['StartDate']).group()),
             'allday': act['AllDayEvent'],
             'last_update': int(re.search(r'\d+', act['LastUpdate']).group())
         })
@@ -162,7 +162,9 @@ def send_to_zimbra(act):
         r = requests.post(zimbra_url + '/calendar?fmt=ics',
                           auth=(zimbra_username, zimbra_password),
                           files={'{}/to_zimbra_{}.ics'.format(directory, act['uid']): f})
-        print 'Sent "{}" ics file to Zimbra'.format(act['summary'])
+        if r.status_code == requests.codes.ok:
+            print 'Sent "{} {}" ics file to Zimbra'.format(
+                act['summary'], act['dtstart'])
 
 
 def check_if_cal_item_is_deleted(database_id, zimbra_cal):
@@ -178,7 +180,6 @@ def check_if_cal_item_is_deleted(database_id, zimbra_cal):
         return True
 
 
-
 def sync():
     """
     Creates/Updates the calendar items from Zimbra into the Redtail calendar
@@ -192,14 +193,6 @@ def sync():
     db_query = To_Redtail.select().dicts()
     db_list = {'to_redtail_data': list(db_query)}
 
-    # Loop to complete and remove deleted zimbra calendar items
-    for record in db_list['to_redtail_data']:
-        if check_if_cal_item_is_deleted(record['zimbra_item_id'], zimbra_cal):
-            redtail.mark_activity_complete(
-                rt_un, rt_pw, record['redtail_act_id'])
-            To_Redtail.select().where(To_Redtail.redtail_act_id ==
-                                      record['redtail_act_id']).get().delete()
-
     # Loop to create & update Zimbra activities
     for event in redtail_cal:
         if To_Redtail.select().where(To_Redtail.redtail_act_id == event['uid']):
@@ -209,7 +202,8 @@ def sync():
                 rt_id = event['uid']
                 event['uid'] = zimbra_uid
                 send_to_zimbra(event)
-                To_Zimbra.create(user=rt_user_id, zimbra_item_id=event['uid'], redtail_act_id=rt_id)
+                To_Zimbra.create(
+                    user=rt_user_id, zimbra_item_id=event['uid'], redtail_act_id=rt_id)
         elif To_Zimbra.select().where(To_Zimbra.zimbra_item_id == event['uid']):
             if event['last_update'] > last_sync:
                 zimbra_uid = To_Zimbra.select().where(
@@ -218,13 +212,15 @@ def sync():
                 send_to_zimbra(event)
         else:
             send_to_zimbra(event)
-            To_Zimbra.create(user=rt_user_id, zimbra_item_id=event['uid'], redtail_act_id=event['uid'])
+            To_Zimbra.create(
+                user=rt_user_id, zimbra_item_id=event['uid'], redtail_act_id=event['uid'])
 
     # Loop to create & update Redtail activities
     for cal_item in zimbra_cal:
         if To_Redtail.select().where(To_Redtail.zimbra_item_id == cal_item['uid']):
             if cal_item['last_update'] > last_sync:
-                db_record = To_Redtail.select().where(To_Redtail.zimbra_item_id == cal_item['uid'])
+                db_record = To_Redtail.select().where(
+                    To_Redtail.zimbra_item_id == cal_item['uid'])
                 redtail_recid = db_record.get().redtail_act_id
                 # Update Redtail activity
                 redtail.put_cal_item(
@@ -240,17 +236,22 @@ def sync():
             # if a zimbra id is not in database then create a new Redtail activity
             To_Redtail.create(user=rt_user_id, zimbra_item_id=cal_item['uid'], redtail_act_id=redtail.put_cal_item(
                 rt_un, rt_pw, cal_item, 0, rt_user_id, timezone_offset))
-    
 
-#Timer that runs sync() every hour
+        # Loop to complete and remove deleted zimbra calendar items
+    for record in db_list['to_redtail_data']:
+        if check_if_cal_item_is_deleted(record['zimbra_item_id'], zimbra_cal):
+            redtail.mark_activity_complete(
+                rt_un, rt_pw, record['redtail_act_id'])
+            To_Redtail.select().where(To_Redtail.redtail_act_id ==
+                                      record['redtail_act_id']).get().delete()
+
+
+# Timer that runs sync() every 30 min
 while True:
     sync()
-    files = glob.glob('{}/*'.format(directory))
-    for f in files:
-        os.remove(f)
     last_sync = get_timestamp()
     timezone_offset = datetime.datetime.now(pytz.timezone(tz)).strftime('%z')
     print ' '
     print 'Sync Complete'
     print ' '
-    time.sleep(1800) # 30 minutes
+    time.sleep(1800)  # 30 minutes
