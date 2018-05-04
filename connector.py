@@ -150,7 +150,8 @@ def get_redtail_cal():
             'desc': act['Note'],
             'uid': act['RecID'],
             'allday': act['AllDayEvent'],
-            'last_update': int(re.search(r'\d+', act['LastUpdate']).group())
+            'last_update': int(re.search(r'\d+', act['LastUpdate']).group()),
+            'repeat': act['Repeat']
         })
     return sending_to_zimbra
 
@@ -161,9 +162,8 @@ def send_to_zimbra(act, created_in_redtail):
     e=Event()
     if created_in_redtail:
         act['uid'] = '{}_{}'.format(act['uid'], re.search(r'\d+', act['dtstart']).group())
-        e.add('uid', act['uid'])
-    else:
-        e.add('uid', act['uid'])
+    e.add('uid', act['uid'])
+    e.add('uid', act['uid'])
     e.add('summary', act['summary'])
     e.add('dtstart', redtail.parse_date(
         act['dtstart'], act['allday'], user_timezone))
@@ -213,8 +213,10 @@ def sync():
 
     # Loop to create & update Zimbra activities
     for act in redtail_cal:
+        # If the activity is a repeating activity 
         # If the Redtail ActID was the same one that was sent to Redtail, Update it
         if To_Redtail.select().where(To_Redtail.redtail_act_id == act['uid']):
+            print '1st'
             if act['last_update'] > last_sync:
                 db_record = To_Redtail.select().where(
                     To_Redtail.redtail_act_id == act['uid'])
@@ -226,14 +228,16 @@ def sync():
                     user=rt_user_id, zimbra_item_id=act['uid'], redtail_act_id=redtail_act_id)
         # Else if the Redtail ActID was the same one that was sent to Zimbra, Update it
         elif To_Zimbra.select().where(To_Zimbra.redtail_act_id == act['uid']):
-            if act['last_update'] > last_sync:
+            print '2nd'
+            if act['last_update'] > last_sync  and not act['repeat']:
                 zimbra_uid = To_Zimbra.select().where(
                     To_Zimbra.redtail_act_id == act['uid']).get().zimbra_item_id
                 act['uid'] = zimbra_uid
                 send_to_zimbra(act, False)
         else:
+            print '3rd'
             To_Zimbra.create(
-                user=rt_user_id, zimbra_item_id=send_to_zimbra(act, True), redtail_act_id=act['uid'])
+                user=rt_user_id, redtail_act_id=act['uid'], zimbra_item_id=send_to_zimbra(act, True))
 
     # Loop to create & update Redtail activities
     for cal_item in zimbra_cal:
